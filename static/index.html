@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start</title>
+<style>
+:root {
+  --bg: #e9eef4; --panel: #ffffff; --ink: #1b2430; --muted: #5d6b7c;
+  --line: #d3dbe5; --link: #1257b0; --up: #12703a; --down: #b3261e;
+  --field: #f6f8fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141a22; --panel: #1d2530; --ink: #e6ebf2; --muted: #9aa8b9;
+    --line: #2c3746; --link: #7db3ff; --up: #58c486; --down: #ff8a80;
+    --field: #161d27;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.45 "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+.top {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding: 14px 20px;
+}
+.top form { flex: 1 1 320px; max-width: 560px; display: flex; gap: 8px; }
+.top input[type=search] { flex: 1; }
+input, textarea, select, button { font: inherit; color: inherit; }
+input[type=search], .settings input, .settings textarea, .settings select, .top select {
+  background: var(--field); border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 10px; width: 100%;
+}
+.top select { width: auto; }
+.btn {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 14px; cursor: pointer;
+}
+.btn:hover { border-color: var(--link); }
+.btn.primary { background: var(--link); border-color: var(--link); color: #fff; }
+@media (prefers-color-scheme: dark) { .btn.primary { color: #0b1420; } }
+
+#board {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px; padding: 0 20px 40px; align-items: start;
+}
+@media (max-width: 860px) { #board { grid-template-columns: 1fr; } }
+.col { display: flex; flex-direction: column; gap: 16px; min-height: 120px; }
+
+.widget {
+  background: var(--panel); border: 1px solid var(--line);
+  border-top: 3px solid var(--accent); border-radius: 6px; overflow: hidden;
+}
+.widget.dragging { opacity: .4; }
+.whead {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  cursor: grab;
+}
+.whead h2 {
+  flex: 1; margin: 0; font-size: 15px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.icon {
+  background: none; border: 0; border-radius: 4px; width: 28px; height: 28px;
+  cursor: pointer; color: var(--muted); font-size: 15px;
+}
+.icon:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink); }
+.wbody { padding: 10px 12px 12px; }
+.widget.collapsed .wbody, .widget.collapsed .settings { display: none; }
+
+.settings { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+.settings label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.settings textarea { min-height: 90px; resize: vertical; }
+.settings .row { display: flex; gap: 8px; }
+.settings[hidden] { display: none; }
+
+ul.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+ul.feed li { display: grid; gap: 1px; }
+.age { font-size: 12px; color: var(--muted); }
+
+table.quotes { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.quotes td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.quotes tr:last-child td { border-bottom: 0; }
+.quotes td:nth-child(n+2) { text-align: right; padding-left: 10px; }
+.quotes .sym { font-weight: 700; }
+.up { color: var(--up); } .down { color: var(--down); }
+
+textarea.notes {
+  width: 100%; min-height: 160px; resize: vertical; background: transparent;
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px;
+}
+ul.links { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.clock .time { font-size: 38px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.clock .date { color: var(--muted); }
+.err, .empty { margin: 0; color: var(--muted); }
+.err { color: var(--down); }
+
+#ribbon { display: grid; gap: 10px; padding: 12px 20px 2px; }
+.rrow { display: flex; gap: 10px; overflow-x: auto; }
+#ribbon:empty { display: none; }
+.tile {
+  flex: 1 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 12px; color: var(--ink); text-decoration: none;
+}
+.tile:hover { border-color: var(--link); text-decoration: none; }
+.tile .tname { font-weight: 700; font-size: 14px; white-space: nowrap; }
+.tile .tprice { font-variant-numeric: tabular-nums; font-size: 15px; }
+.tile .tchg { font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+.tile .tnote { font-size: 12px; color: var(--muted); }
+.tile.bad { color: var(--muted); }
+.tile svg { display: block; flex: none; }
+.tile polyline { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.tile .up polyline { stroke: var(--up); } .tile .down polyline { stroke: var(--down); }
+.tile .flat polyline { stroke: var(--muted); }
+.tchg.flat { color: var(--ink); }
+.tile .base { stroke: var(--line); stroke-dasharray: 3 3; stroke-width: 1; }
+.wx .big { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.wx .temp { font-size: 42px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.wx .feels { color: var(--muted); }
+.wx dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0 0; }
+.wx dt { color: var(--muted); }
+.wx dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.wx .meta { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.segbtn {
+  background: var(--field); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 11px; font-size: 13px; cursor: pointer;
+}
+.segbtn[aria-pressed="true"] { background: var(--link); border-color: var(--link); color: #fff; }
+@media (prefers-color-scheme: dark) { .segbtn[aria-pressed="true"] { color: #0b1420; } }
+h3.day { font-size: 13px; color: var(--muted); margin: 14px 0 8px; padding-bottom: 3px; border-bottom: 1px solid var(--line); font-weight: 700; }
+.drop-marker { height: 56px; border: 2px dashed var(--link); border-radius: 6px; }
+#status { position: fixed; right: 16px; bottom: 12px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<section id="ribbon" aria-label="Market overview"></section>
+<header class="top">
+  <form action="https://www.google.com/search" method="get" role="search">
+    <input type="search" name="q" placeholder="Search the web" aria-label="Search the web" autofocus>
+    <button class="btn primary" type="submit">Search</button>
+  </form>
+  <select id="add" aria-label="Add a widget">
+    <option value="">Add a widget…</option>
+    <option value="rss">News feed (RSS)</option>
+    <option value="hn">Hacker News (daily top)</option>
+    <option value="stocks">Stock watchlist</option>
+    <option value="notes">Notes</option>
+    <option value="links">Bookmarks</option>
+    <option value="weather">Weather (Ambient station)</option>
+    <option value="clock">Clock</option>
+  </select>
+  <button class="btn" id="reset" type="button">Reset layout</button>
+</header>
+<main id="board" aria-label="Widgets"></main>
+<div id="status" role="status"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2, 9);
+function el(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') n.className = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v);
+  }
+  kids.forEach(k => n.append(k));
+  return n;
+}
+const safeHref = u => /^https?:\/\//i.test(u) ? u : '#';
+function ageText(iso) {
+  if (!iso) return '';
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  if (m < 60) return `${m} min ago`;
+  if (m < 1440) return `${Math.round(m / 60)} hr ago`;
+  return `${Math.round(m / 1440)} d ago`;
+}
+const fmt = (n, d = 2) => n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+
+/* ---------- widget types ---------- */
+const TYPES = {
+  rss: {
+    accent: '#2a6fd6', interval: 600000,
+    defaults: () => ({ title: 'News', config: { url: '', count: 8 } }),
+    fields: [
+      { key: 'url', label: 'Feed URL', kind: 'text' },
+      { key: 'count', label: 'Headlines to show', kind: 'number' },
+    ],
+    async render(body, w) {
+      if (!w.config.url) { body.replaceChildren(el('p', { class: 'empty', text: 'Open settings and paste a feed URL.' })); return; }
+      body.textContent = 'Loading…';
+      try {
+        const r = await fetch(`/api/feed?url=${encodeURIComponent(w.config.url)}&n=${w.config.count}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || r.status);
+        const ul = el('ul', { class: 'feed' });
+        d.items.forEach(i => {
+          const meta = el('span', { class: 'age' }, ageText(i.published));
+          if (i.points != null) meta.append(` · ${i.points} points`);
+          if (i.comments && i.comments !== i.link)
+            meta.append(' · ', el('a', { href: safeHref(i.comments), target: '_blank', rel: 'noopener',
+              text: i.num_comments != null ? `${i.num_comments} comments` : 'comments' }));
+          ul.append(el('li', {},
+            el('a', { href: safeHref(i.link), target: '_blank', rel: 'noopener', text: i.title }), meta));
+        });
+        body.replaceChildren(ul);
+      } catch (e) {
+        body.replaceChildren(el('p', { class: 'err', text: `Couldn’t load this feed: ${e.message}` }));
+      }
+    },
+  },
+  hn: {
+    accent: '#e8590c', interval: 600000,
+    defaults: () => ({ title: 'Hacker News', maxLines: 40, config: { days: 3, mode: 'top20', min: 20, sort: 'points' } }),
+    fields: [
+      { key: 'days', label: 'Days to show (1–7)', kind: 'number' },
+      { key: 'min', label: 'Minimum points for a story to count (stands in for “reached the front page”); the All button ignores this', kind: 'number' },
+      { key: 'sort', label: 'Order within each day', kind: 'select',
+        options: [['points', 'Most points first'], ['time', 'Newest first']] },
+    ],
+    async render(body, w) {
+      const c = w.config;
+      const days = Math.max(1, Math.min(7, parseInt(c.days, 10) || 3));
+      const minPts = Math.max(1, parseInt(c.min, 10) || 20);
+      if (!body.firstChild) body.textContent = 'Loading…';
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      const ranges = [...Array(days).keys()].map(i => {
+        const start = new Date(midnight); start.setDate(start.getDate() - i);
+        const end = new Date(start); end.setDate(end.getDate() + 1);
+        return { start, end };
+      });
+      // "All" drops the points floor entirely; the other views use the configured minimum.
+      const minFor = mode => (mode === 'all' ? 0 : minPts);
+      const fetchDays = min => Promise.all(ranges.map(async r => {
+        try {
+          const res = await fetch(`/api/hn?start=${Math.floor(r.start / 1000)}&end=${Math.floor(r.end / 1000)}&min=${min}`);
+          const d = await res.json();
+          if (!res.ok) throw new Error(d.error || res.status);
+          return { ...r, stories: d.stories };
+        } catch (e) { return { ...r, error: e.message }; }
+      }));
+      const loaded = {};
+      let curMin = minFor(c.mode);
+      let results = loaded[curMin] = await fetchDays(curMin);
+
+      const modes = [['top10', 'Top 10'], ['top20', 'Top 20'], ['half', 'Top 50%'], ['all', 'All']];
+      const itemUrl = id => `https://news.ycombinator.com/item?id=${id}`;
+      const dayLabel = d => {
+        const diff = Math.round((midnight - d) / 86400000);
+        return diff === 0 ? 'Today' : diff === 1 ? 'Yesterday'
+          : d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+      };
+      const pick = list => {
+        const n = c.mode === 'top10' ? 10 : c.mode === 'half' ? Math.ceil(list.length / 2)
+          : c.mode === 'all' ? list.length : 20;
+        const out = list.slice(0, n);
+        return c.sort === 'time' ? [...out].sort((a, b) => b.time - a.time) : out;
+      };
+      const draw = () => {
+        const bar = el('div', { class: 'seg', role: 'group', 'aria-label': 'How many stories per day' });
+        modes.forEach(([m, label]) => bar.append(el('button', {
+          class: 'segbtn', type: 'button', 'aria-pressed': String((c.mode || 'top20') === m), text: label,
+          onclick: async () => {
+            c.mode = m; saveSoon();
+            const need = minFor(m);
+            if (!loaded[need]) { bar.style.opacity = '.6'; loaded[need] = await fetchDays(need); }
+            results = loaded[need];
+            draw();
+          },
+        })));
+        const parts = [bar];
+        results.forEach(r => {
+          parts.push(el('h3', { class: 'day', text: dayLabel(r.start) }));
+          if (r.error) { parts.push(el('p', { class: 'err', text: `Couldn’t load: ${r.error}` })); return; }
+          const items = pick(r.stories);
+          if (!items.length) { parts.push(el('p', { class: 'empty', text: 'No stories yet.' })); return; }
+          const ul = el('ul', { class: 'feed' });
+          items.forEach(s => {
+            let host = '';
+            try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch {}
+            const meta = el('span', { class: 'age' },
+              `${host ? host + ' · ' : ''}${s.points} points · `,
+              el('a', { href: itemUrl(s.id), target: '_blank', rel: 'noopener', text: `${s.comments} comments` }),
+              ` · ${new Date(s.time * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+            ul.append(el('li', {},
+              el('a', { href: s.url ? safeHref(s.url) : itemUrl(s.id), target: '_blank', rel: 'noopener', text: s.title }), meta));
+          });
+          parts.push(ul);
+        });
+        body.replaceChildren(...parts);
+      };
+      draw();
+    },
+  },
+  stocks: {
+    accent: '#1f8f55', interval: 60000,
+    defaults: () => ({ title: 'Markets', config: { symbols: 'SPY, QQQ, AAPL, MSFT' } }),
+    fields: [{ key: 'symbols', label: 'Ticker symbols, separated by commas', kind: 'text' }],
+    async render(body, w) {
+      if (!body.firstChild) body.textContent = 'Loading…';
+      try {
+        const r = await fetch(`/api/quotes?symbols=${encodeURIComponent(w.config.symbols)}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || r.status);
+        const tb = el('tbody');
+        d.quotes.forEach(q => {
+          if (q.error) {
+            tb.append(el('tr', {}, el('td', { class: 'sym', text: q.symbol }), el('td', { colspan: 2, text: q.error })));
+            return;
+          }
+          const dir = q.change >= 0 ? 'up' : 'down';
+          const arrow = q.change >= 0 ? '▲' : '▼';
+          const sign = q.change >= 0 ? '+' : '−';
+          tb.append(el('tr', {},
+            el('td', { class: 'sym', text: q.symbol }),
+            el('td', { text: fmt(q.price) }),
+            el('td', { class: dir, text: `${arrow} ${sign}${fmt(Math.abs(q.change))} (${sign}${fmt(Math.abs(q.pct))}%)` })));
+        });
+        body.replaceChildren(el('table', { class: 'quotes' }, tb));
+      } catch (e) {
+        body.replaceChildren(el('p', { class: 'err', text: `Couldn’t load quotes: ${e.message}` }));
+      }
+    },
+  },
+  notes: {
+    accent: '#c58a00',
+    defaults: () => ({ title: 'Notes', config: { text: '' } }),
+    fields: [],
+    render(body, w) {
+      const ta = el('textarea', { class: 'notes', 'aria-label': 'Notes', placeholder: 'Type a note…' });
+      ta.value = w.config.text || '';
+      ta.addEventListener('input', () => { w.config.text = ta.value; saveSoon(); });
+      body.replaceChildren(ta);
+    },
+  },
+  links: {
+    accent: '#7a4fc2',
+    defaults: () => ({ title: 'Bookmarks', config: { list: 'Example | https://example.com' } }),
+    fields: [{ key: 'list', label: 'One per line: Name | URL', kind: 'textarea' }],
+    render(body, w) {
+      const ul = el('ul', { class: 'links' });
+      (w.config.list || '').split('\n').map(s => s.trim()).filter(Boolean).forEach(line => {
+        const [a, b] = line.includes('|') ? line.split('|').map(s => s.trim()) : [null, line];
+        let name = a;
+        if (!name) { try { name = new URL(b).hostname; } catch { name = b; } }
+        ul.append(el('li', {}, el('a', { href: safeHref(b), rel: 'noopener', text: name })));
+      });
+      body.replaceChildren(ul.children.length ? ul : el('p', { class: 'empty', text: 'Open settings to add links.' }));
+    },
+  },
+  weather: {
+    accent: '#d9822b', interval: 120000,
+    defaults: () => ({ title: 'Weather', config: { dashboard: '' } }),
+    fields: [{ key: 'dashboard', label: 'Link to your Ambient dashboard (optional)', kind: 'text' }],
+    async render(body, w) {
+      if (!body.firstChild) body.textContent = 'Loading…';
+      try {
+        const r = await fetch('/api/weather');
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || r.status);
+        const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+        const has = v => v !== undefined && v !== null;
+        const rows = [];
+        if (has(d.humidity)) rows.push(['Humidity', `${Math.round(d.humidity)}%`]);
+        if (has(d.dew)) rows.push(['Dew point', `${Math.round(d.dew)}°F`]);
+        if (has(d.wind)) {
+          const where = has(d.winddir) ? ` ${dirs[Math.round(d.winddir / 22.5) % 16]}` : '';
+          const gust = has(d.gust) && d.gust > d.wind ? `, gusts ${Math.round(d.gust)}` : '';
+          rows.push(['Wind', d.wind < 1 ? 'Calm' : `${Math.round(d.wind)} mph${where}${gust}`]);
+        }
+        if (has(d.pressure)) rows.push(['Pressure', `${fmt(d.pressure)} inHg`]);
+        if (has(d.rain_today)) rows.push(['Rain today', `${fmt(d.rain_today)} in`]);
+        if (has(d.rain_hour) && d.rain_hour > 0) rows.push(['Rain this hour', `${fmt(d.rain_hour)} in`]);
+        if (has(d.uv)) rows.push(['UV index', String(d.uv)]);
+        if (has(d.temp_in)) rows.push(['Indoors', `${Math.round(d.temp_in)}°F${has(d.humidity_in) ? `, ${Math.round(d.humidity_in)}%` : ''}`]);
+        const dl = el('dl');
+        rows.forEach(([k, v]) => dl.append(el('dt', { text: k }), el('dd', { text: v })));
+
+        const big = el('div', { class: 'big' },
+          el('span', { class: 'temp', text: has(d.temp) ? `${Math.round(d.temp)}°F` : '—' }));
+        if (has(d.feels) && has(d.temp) && Math.round(d.feels) !== Math.round(d.temp))
+          big.append(el('span', { class: 'feels', text: `Feels like ${Math.round(d.feels)}°` }));
+
+        const ageMin = d.updated_ms ? (Date.now() - d.updated_ms) / 60000 : null;
+        const stale = ageMin !== null && ageMin > 30;
+        const meta = el('p', { class: stale ? 'err' : 'meta',
+          text: ageMin === null ? d.name : stale
+            ? `${d.name}: last report ${ageText(new Date(d.updated_ms).toISOString())}. The station may be offline.`
+            : `${d.name}, updated ${ageText(new Date(d.updated_ms).toISOString())}` });
+        const wx = el('div', { class: 'wx' }, big, dl, meta);
+        if (w.config.dashboard && /^https?:\/\//i.test(w.config.dashboard))
+          meta.append(' · ', el('a', { href: w.config.dashboard, target: '_blank', rel: 'noopener', text: 'Full dashboard' }));
+        body.replaceChildren(wx);
+      } catch (e) {
+        body.replaceChildren(el('p', { class: 'err', text: `Couldn’t load the weather: ${e.message}` }));
+      }
+    },
+  },
+  clock: {
+    accent: '#4a5a6b',
+    defaults: () => ({ title: 'Clock', config: { tz: '' } }),
+    fields: [{ key: 'tz', label: 'Time zone, such as America/New_York (blank for this computer)', kind: 'text' }],
+    render(body, w) {
+      const tz = w.config.tz || undefined;
+      const time = el('div', { class: 'time' }), date = el('div', { class: 'date' });
+      body.replaceChildren(el('div', { class: 'clock' }, time, date));
+      const tick = () => {
+        const now = new Date();
+        try {
+          time.textContent = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
+          date.textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz });
+        } catch { time.textContent = '—'; date.textContent = 'Unknown time zone'; }
+      };
+      tick();
+      const t = setInterval(tick, 1000);
+      return () => clearInterval(t);
+    },
+  },
+};
+
+/* ---------- state ---------- */
+const DEFAULT_LAYOUT = () => ({ columns: [
+  [
+    mk('rss', 'NPR News', { url: 'https://feeds.npr.org/1001/rss.xml', count: 8 }),
+    mk('rss', 'Hacker News', { url: 'https://news.ycombinator.com/rss', count: 10 }),
+  ],
+  [
+    mk('stocks', 'Markets', { symbols: 'SPY, QQQ, DIA, AAPL, MSFT, NVDA' }),
+    mk('rss', 'MarketWatch', { url: 'https://feeds.content.dowjones.io/public/rss/mw_topstories', count: 8 }),
+  ],
+  [
+    mk('clock', 'Clock', { tz: '' }),
+    mk('weather', 'Weather', { dashboard: '' }),
+    mk('rss', 'BBC News', { url: 'http://feeds.bbci.co.uk/news/rss.xml', count: 8 }),
+    mk('notes', 'Notes', { text: '' }),
+  ],
+]});
+function mk(type, title, config) { return { id: uid(), type, title, collapsed: false, config }; }
+
+let state;
+const byId = new Map();
+const board = $('#board');
+
+/* ---------- saving ---------- */
+let saveTimer;
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 400); }
+async function save() {
+  try {
+    const r = await fetch('/api/layout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) });
+    if (!r.ok) throw new Error();
+    $('#status').textContent = '';
+  } catch { $('#status').textContent = 'Couldn’t save your layout. Is the server running?'; }
+}
+function syncFromDom() {
+  state.columns = [...board.children].map(col => [...col.querySelectorAll('.widget')].map(n => byId.get(n.dataset.id)));
+  saveSoon();
+}
+
+/* ---------- widget DOM ---------- */
+// Optional height limit, in lines of text. Beyond it the widget body scrolls.
+function applyHeight(node, w) {
+  const body = $('.wbody', node);
+  const n = parseInt(w.maxLines, 10);
+  if (n > 0) {
+    body.style.maxHeight = `calc(${n * 1.45}em + 22px)`;   // 1.45 is the line height; 22px is the body padding
+    body.style.overflowY = 'auto';
+    body.tabIndex = 0;
+    body.setAttribute('role', 'region');
+    body.setAttribute('aria-label', `${w.title}, scrollable`);
+  } else {
+    body.style.maxHeight = '';
+    body.style.overflowY = '';
+    ['tabindex', 'role', 'aria-label'].forEach(a => body.removeAttribute(a));
+  }
+}
+function runWidget(node, w) {
+  if (node._cleanup) { node._cleanup(); node._cleanup = null; }
+  const out = TYPES[w.type].render($('.wbody', node), w);
+  if (typeof out === 'function') node._cleanup = out;
+}
+function buildWidget(w) {
+  const T = TYPES[w.type];
+  byId.set(w.id, w);
+  const node = el('article', { class: 'widget' + (w.collapsed ? ' collapsed' : ''), 'data-id': w.id, style: `--accent:${T.accent}` });
+
+  const title = el('h2', { text: w.title });
+  const collapseBtn = el('button', { class: 'icon', type: 'button', 'aria-label': w.collapsed ? 'Expand' : 'Collapse', text: w.collapsed ? '▸' : '▾' });
+  const gear = el('button', { class: 'icon', type: 'button', 'aria-label': 'Settings', text: '⚙' });
+  const del = el('button', { class: 'icon', type: 'button', 'aria-label': 'Remove widget', text: '×' });
+  const head = el('div', { class: 'whead', draggable: 'true' }, title, gear, collapseBtn, del);
+
+  const settings = el('div', { class: 'settings', hidden: '' });
+  const body = el('div', { class: 'wbody' });
+  node.append(head, settings, body);
+  applyHeight(node, w);
+
+  collapseBtn.onclick = () => {
+    w.collapsed = !w.collapsed;
+    node.classList.toggle('collapsed', w.collapsed);
+    collapseBtn.textContent = w.collapsed ? '▸' : '▾';
+    collapseBtn.setAttribute('aria-label', w.collapsed ? 'Expand' : 'Collapse');
+    saveSoon();
+  };
+  del.onclick = () => {
+    if (node._cleanup) node._cleanup();
+    clearInterval(node._timer);
+    byId.delete(w.id);
+    node.remove();
+    syncFromDom();
+  };
+  gear.onclick = () => {
+    if (!settings.hidden) { settings.hidden = true; return; }
+    openSettings(node, w, settings, title);
+  };
+
+  head.addEventListener('dragstart', e => {
+    dragging = node;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', w.id);
+    e.dataTransfer.setDragImage(node, 20, 20);
+    requestAnimationFrame(() => node.classList.add('dragging'));
+  });
+  head.addEventListener('dragend', () => { node.classList.remove('dragging'); marker.remove(); dragging = null; syncFromDom(); });
+
+  runWidget(node, w);
+  if (T.interval) node._timer = setInterval(() => { if (!w.collapsed && !document.hidden) runWidget(node, w); }, T.interval);
+  return node;
+}
+function openSettings(node, w, panel, titleEl) {
+  const T = TYPES[w.type];
+  const inputs = {};
+  const rows = [];
+  const mkField = (label, kind, value, options) => {
+    let input;
+    if (kind === 'select') {
+      input = el('select');
+      options.forEach(([v, t]) => input.append(el('option', { value: v, text: t })));
+    } else {
+      input = kind === 'textarea' ? el('textarea') : el('input', { type: kind === 'number' ? 'number' : 'text' });
+    }
+    if (kind === 'number') { input.min = 1; input.max = 50; }
+    input.value = value ?? '';
+    rows.push(el('label', {}, label, input));
+    return input;
+  };
+  const titleIn = mkField('Title', 'text', w.title);
+  T.fields.forEach(f => { inputs[f.key] = mkField(f.label, f.kind, w.config[f.key], f.options); });
+  const linesIn = mkField('Maximum height in lines of text; blank or “none” for no limit (a headline takes about two lines)', 'text', w.maxLines || '');
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: 'Save' });
+  const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
+  panel.replaceChildren(...rows, el('div', { class: 'row' }, saveBtn, cancel));
+  panel.hidden = false;
+  titleIn.focus();
+  cancel.onclick = () => { panel.hidden = true; };
+  saveBtn.onclick = () => {
+    w.title = titleIn.value.trim() || w.title;
+    titleEl.textContent = w.title;
+    T.fields.forEach(f => {
+      const v = inputs[f.key].value;
+      w.config[f.key] = f.kind === 'number' ? Math.max(1, Math.min(50, parseInt(v, 10) || 8)) : v.trim();
+    });
+    const lines = parseInt(linesIn.value, 10);
+    w.maxLines = lines > 0 ? Math.min(lines, 500) : null;
+    applyHeight(node, w);
+    panel.hidden = true;
+    runWidget(node, w);
+    saveSoon();
+  };
+}
+
+/* ---------- drag and drop ---------- */
+let dragging = null;
+const marker = el('div', { class: 'drop-marker' });
+board.addEventListener('dragover', e => {
+  if (!dragging) return;
+  e.preventDefault();
+  const col = e.target.closest('.col');
+  if (!col) return;
+  const after = [...col.querySelectorAll('.widget:not(.dragging)')].find(n => {
+    const r = n.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2;
+  });
+  col.insertBefore(marker, after || null);
+});
+board.addEventListener('drop', e => {
+  if (!dragging) return;
+  e.preventDefault();
+  if (marker.parentNode) marker.parentNode.insertBefore(dragging, marker);
+  marker.remove();
+});
+
+/* ---------- market ribbon ---------- */
+const SVGNS = 'http://www.w3.org/2000/svg';
+function sparkline(points, prev, dir) {
+  const W = 96, H = 30, pad = 2;
+  const min = Math.min(...points, prev), max = Math.max(...points, prev), span = max - min || 1;
+  const x = i => pad + i * (W - 2 * pad) / Math.max(1, points.length - 1);
+  const y = v => H - pad - (v - min) / span * (H - 2 * pad);
+  const svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', dir);
+  const base = document.createElementNS(SVGNS, 'line');
+  base.setAttribute('class', 'base');
+  base.setAttribute('x1', 0); base.setAttribute('x2', W);
+  base.setAttribute('y1', y(prev)); base.setAttribute('y2', y(prev));
+  const line = document.createElementNS(SVGNS, 'polyline');
+  line.setAttribute('points', points.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' '));
+  svg.append(base, line);
+  return svg;
+}
+async function loadRibbon() {
+  const box = $('#ribbon');
+  try {
+    const r = await fetch('/api/ribbon');
+    const d = await r.json();
+    if (!r.ok) throw new Error();
+    const els = d.tiles.map(t => {
+      const href = t.link || `https://finance.yahoo.com/quote/${encodeURIComponent(t.symbol)}`;
+      if (t.error) {
+        return el('a', { class: 'tile bad', href, target: '_blank', rel: 'noopener' },
+          el('div', {}, el('div', { class: 'tname', text: t.name }),
+            el('div', { class: 'tnote', title: String(t.error), text: String(t.error).length > 38 ? String(t.error).slice(0, 38) + '…' : String(t.error) })));
+      }
+      const up = t.change >= 0, sign = up ? '+' : '−';
+      const dir = t.neutral ? 'flat' : (up ? 'up' : 'down');
+      let priceText = fmt(t.price), chgText;
+      if (t.unit === 'pct') {
+        const bp = Math.abs(t.change) * 100;
+        priceText = `${fmt(t.price)}%`;
+        chgText = `${up ? '▲' : '▼'} ${sign}${bp < 10 ? bp.toFixed(1) : Math.round(bp)} bp`;
+      } else {
+        chgText = `${up ? '▲' : '▼'} ${sign}${fmt(Math.abs(t.change))} (${sign}${fmt(Math.abs(t.pct))}%)`;
+      }
+      const text = el('div', {},
+        el('div', { class: 'tname', text: t.name }),
+        el('div', { class: 'tprice', text: priceText }),
+        el('div', { class: 'tchg ' + dir, text: chgText }));
+      const note = t.mode === 'close' ? 'At close' : t.note;
+      if (note) text.append(el('div', { class: 'tnote', text: note }));
+      return el('a', { class: 'tile', href, target: '_blank', rel: 'noopener' }, text, sparkline(t.points, t.base ?? t.prev, dir));
+    });
+    const rows = {};
+    d.tiles.forEach((t, i) => (rows[t.row || 1] ||= []).push(els[i]));
+    box.replaceChildren(...Object.keys(rows).sort().map(k => el('div', { class: 'rrow' }, ...rows[k])));
+  } catch {
+    if (!box.children.length) box.replaceChildren(el('p', { class: 'err', text: 'Couldn’t load the market ribbon.' }));
+  }
+}
+
+/* ---------- boot ---------- */
+function renderBoard() {
+  board.querySelectorAll('.widget').forEach(n => { if (n._cleanup) n._cleanup(); clearInterval(n._timer); });
+  byId.clear();
+  board.replaceChildren(...state.columns.map(col => el('div', { class: 'col' }, ...col.map(buildWidget))));
+}
+$('#add').addEventListener('change', e => {
+  const type = e.target.value;
+  if (!type) return;
+  const d = TYPES[type].defaults();
+  const w = mk(type, d.title, d.config);
+  w.maxLines = d.maxLines ?? null;
+  const cols = [...board.children];
+  const shortest = cols.reduce((a, b) => (b.children.length < a.children.length ? b : a));
+  const node = buildWidget(w);
+  shortest.prepend(node);
+  e.target.value = '';
+  syncFromDom();
+  if (TYPES[type].fields.length) $('[aria-label="Settings"]', node).click();
+});
+$('#reset').addEventListener('click', () => {
+  if (!confirm('Replace your current layout with the default one?')) return;
+  state = DEFAULT_LAYOUT();
+  renderBoard();
+  saveSoon();
+});
+
+loadRibbon();
+setInterval(() => { if (!document.hidden) loadRibbon(); }, 60000);
+
+(async function init() {
+  try {
+    const r = await fetch('/api/layout');
+    const saved = await r.json();
+    state = saved && Array.isArray(saved.columns) && saved.columns.length === 3 ? saved : DEFAULT_LAYOUT();
+  } catch { state = DEFAULT_LAYOUT(); }
+  renderBoard();
+  if (!state.columns.flat().length) { state = DEFAULT_LAYOUT(); renderBoard(); }
+})();
+</script>
+</body>
+</html>

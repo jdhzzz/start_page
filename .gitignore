@@ -1,0 +1,7 @@
+# Personal data and secrets: layout, notes, bookmarks, Ambient API keys
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
