@@ -1,0 +1,52 @@
+[Unit]
+Description=Personal start page (Flask, served by waitress)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jeff
+Group=jeff
+WorkingDirectory=/srv/shared/python/start_page
+# Serve the LAN; the firewall (ufw) decides which devices may connect.
+Environment=HOST=0.0.0.0
+Environment=PORT=5055
+# Hostnames (not IPs) the page may be opened by, besides localhost and zeus/zeus.local
+Environment=START_PAGE_HOSTS=zeus.home.arpa
+# yfinance's cache goes here instead of ~/.cache (home dirs are hidden below)
+Environment=XDG_CACHE_HOME=/var/cache/start-page
+CacheDirectory=start-page
+ExecStart=/srv/shared/python/start_page/.venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+
+# Sandboxing: the app can write only its data/ dir and its cache.
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/shared/python/start_page/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# Blocked calls fail with EPERM instead of killing the process (numpy needs mbind, from @resources)
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -627,7 +627,7 @@ async function loadRibbon() {
     const d = await r.json();
     if (!r.ok) throw new Error();
     const els = d.tiles.map(t => {
-      const href = t.link || `https://finance.yahoo.com/quote/${encodeURIComponent(t.symbol)}`;
+      const href = safeHref(t.link || `https://finance.yahoo.com/quote/${encodeURIComponent(t.symbol)}`);
       if (t.error) {
         return el('a', { class: 'tile bad', href, target: '_blank', rel: 'noopener' },
           el('div', {}, el('div', { class: 'tname', text: t.name }),

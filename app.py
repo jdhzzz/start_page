@@ -16,6 +16,8 @@ import feedparser
 import requests
 import yfinance as yf
 from flask import Flask, jsonify, request, send_from_directory
+
+import netguard
 from ribbon import bp as ribbon_bp
 from weather import bp as weather_bp
 from hn import bp as hn_bp
@@ -33,7 +35,11 @@ SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-^=]{1,15}$")
 FEED_TTL = 300   # seconds a fetched feed is reused
 QUOTE_TTL = 60   # seconds a fetched quote is reused
 
+CACHE_MAX = 500  # entries; stops a client filling memory with unique feed URLs
+
 app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
+app.config["MAX_CONTENT_LENGTH"] = 256 * 1024  # layout POSTs are a few KB
+netguard.install(app)
 app.register_blueprint(ribbon_bp)
 app.register_blueprint(weather_bp)
 app.register_blueprint(hn_bp)
@@ -52,6 +58,9 @@ def cached(key, ttl, fn):
             return hit[1]
     value = fn()
     with _lock:
+        if len(_cache) >= CACHE_MAX:
+            for k in [k for k, (t, _) in _cache.items() if now - t > FEED_TTL] or list(_cache)[:CACHE_MAX // 2]:
+                _cache.pop(k, None)
         _cache[key] = (now, value)
     return value
 
@@ -66,9 +75,8 @@ def index():
 # ---------- RSS / Atom ----------
 
 def fetch_feed(url):
-    r = requests.get(url, headers={"User-Agent": UA}, timeout=10)
-    r.raise_for_status()
-    parsed = feedparser.parse(r.content)
+    _, body = netguard.safe_get(url, headers={"User-Agent": UA}, timeout=10)
+    parsed = feedparser.parse(body)
     if parsed.bozo and not parsed.entries:
         raise ValueError("That URL didn’t return a valid RSS or Atom feed")
     items = []
@@ -94,7 +102,7 @@ def fetch_feed(url):
 @app.get("/api/feed")
 def api_feed():
     url = request.args.get("url", "").strip()
-    if urlparse(url).scheme not in ("http", "https"):
+    if len(url) > 2048 or urlparse(url).scheme not in ("http", "https"):
         return jsonify(error="Feed URL must start with http:// or https://"), 400
     try:
         n = max(1, min(int(request.args.get("n", 8)), 50))
@@ -102,8 +110,13 @@ def api_feed():
         n = 8
     try:
         data = cached(f"feed:{url}", FEED_TTL, lambda: fetch_feed(url))
-    except Exception as exc:  # network errors, bad XML, HTTP errors
-        return jsonify(error=str(exc)), 502
+    except ValueError as exc:  # our own checks (incl. BlockedURL): safe to show
+        return jsonify(error=str(exc)), 400
+    except requests.HTTPError as exc:
+        return jsonify(error=f"Feed returned HTTP {exc.response.status_code}"), 502
+    except Exception:  # network errors etc.; don't echo internals to the client
+        app.logger.exception("feed fetch failed: %s", url)
+        return jsonify(error="Couldn't fetch that feed"), 502
     return jsonify(title=data["title"], items=data["items"][:n])
 
 
@@ -167,6 +180,12 @@ def save_layout():
 
 
 if __name__ == "__main__":
+    # HOST=0.0.0.0 to serve the LAN; also list LAN names/IPs in START_PAGE_HOSTS.
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 5055))
-    print(f"Start page running at http://localhost:{port}")
-    app.run(host="127.0.0.1", port=port, debug=False)
+    print(f"Start page running at http://{host}:{port}")
+    try:
+        from waitress import serve
+        serve(app, host=host, port=port, threads=8, ident="start-page")
+    except ImportError:
+        app.run(host=host, port=port, debug=False)
