@@ -21,6 +21,7 @@ import netguard
 from ribbon import bp as ribbon_bp
 from weather import bp as weather_bp
 from hn import bp as hn_bp
+from health import bp as health_bp
 
 BASE = Path(__file__).parent
 STATIC = BASE / "static"
@@ -43,6 +44,7 @@ netguard.install(app)
 app.register_blueprint(ribbon_bp)
 app.register_blueprint(weather_bp)
 app.register_blueprint(hn_bp)
+app.register_blueprint(health_bp)
 
 _cache = {}
 _lock = threading.Lock()

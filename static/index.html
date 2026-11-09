@@ -8,13 +8,13 @@
 :root {
   --bg: #e9eef4; --panel: #ffffff; --ink: #1b2430; --muted: #5d6b7c;
   --line: #d3dbe5; --link: #1257b0; --up: #12703a; --down: #b3261e;
-  --field: #f6f8fb;
+  --field: #f6f8fb; --warn: #a15c00;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #141a22; --panel: #1d2530; --ink: #e6ebf2; --muted: #9aa8b9;
     --line: #2c3746; --link: #7db3ff; --up: #58c486; --down: #ff8a80;
-    --field: #161d27;
+    --field: #161d27; --warn: #f0b13a;
   }
 }
 * { box-sizing: border-box; }
@@ -141,6 +141,13 @@ ul.links { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 @media (prefers-color-scheme: dark) { .segbtn[aria-pressed="true"] { color: #0b1420; } }
 h3.day { font-size: 13px; color: var(--muted); margin: 14px 0 8px; padding-bottom: 3px; border-bottom: 1px solid var(--line); font-weight: 700; }
 .drop-marker { height: 56px; border: 2px dashed var(--link); border-radius: 6px; }
+.health { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; color: var(--muted); }
+.health[hidden] { display: none; }
+.health .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+.health.ok .dot { background: var(--up); }
+.health.warn .dot { background: var(--warn); }
+.health.down .dot { background: var(--down); }
+.health.down .hlabel { color: var(--down); }
 #status { position: fixed; right: 16px; bottom: 12px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
@@ -162,6 +169,7 @@ h3.day { font-size: 13px; color: var(--muted); margin: 14px 0 8px; padding-botto
     <option value="clock">Clock</option>
   </select>
   <button class="btn" id="reset" type="button">Reset layout</button>
+  <a id="health" class="health" hidden target="_blank" rel="noopener"><span class="dot"></span><span class="hlabel"></span></a>
 </header>
 <main id="board" aria-label="Widgets"></main>
 <div id="status" role="status"></div>
@@ -692,6 +700,25 @@ $('#reset').addEventListener('click', () => {
 
 loadRibbon();
 setInterval(() => { if (!document.hidden) loadRibbon(); }, 60000);
+
+// Health light: one dot summarising Uptime Kuma; click through for details.
+async function loadHealth() {
+  const a = $('#health');
+  let h;
+  try { const r = await fetch('/api/health'); h = await r.json(); } catch { h = { state: 'down', problems: ['Start page server unreachable'] }; }
+  if (h.state === 'off') { a.hidden = true; return; }
+  const n = (h.problems || []).length;
+  const label = { ok: 'All systems OK', warn: `${n} warning${n === 1 ? '' : 's'}`, down: `${n} problem${n === 1 ? '' : 's'}` }[h.state] || 'Unknown';
+  a.className = `health ${h.state}`;
+  a.hidden = false;
+  a.href = safeHref(h.link || '');
+  a.querySelector('.hlabel').textContent = h.state === 'ok' ? '' : label;
+  a.title = h.state === 'ok' ? `${label} (${h.up}/${h.total} up)` : `${label}:\n${h.problems.join('\n')}`;
+  a.setAttribute('aria-label', a.title);
+}
+loadHealth();
+setInterval(() => { if (!document.hidden) loadHealth(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadHealth(); });
 
 (async function init() {
   try {
