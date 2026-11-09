@@ -91,6 +91,8 @@ table.quotes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .quotes tr:last-child td { border-bottom: 0; }
 .quotes td:nth-child(n+2) { text-align: right; padding-left: 10px; }
 .quotes .sym { font-weight: 700; }
+.quotes .sym a { color: inherit; text-decoration: none; }
+.quotes .sym a:hover { text-decoration: underline; }
 .up { color: var(--up); } .down { color: var(--down); }
 
 textarea.notes {
@@ -314,16 +316,18 @@ const TYPES = {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || r.status);
         const tb = el('tbody');
+        const symCell = s => el('td', { class: 'sym' },
+          el('a', { href: `https://finance.yahoo.com/quote/${encodeURIComponent(s)}`, target: '_blank', rel: 'noopener', text: s }));
         d.quotes.forEach(q => {
           if (q.error) {
-            tb.append(el('tr', {}, el('td', { class: 'sym', text: q.symbol }), el('td', { colspan: 2, text: q.error })));
+            tb.append(el('tr', {}, symCell(q.symbol), el('td', { colspan: 2, text: q.error })));
             return;
           }
           const dir = q.change >= 0 ? 'up' : 'down';
           const arrow = q.change >= 0 ? '▲' : '▼';
           const sign = q.change >= 0 ? '+' : '−';
           tb.append(el('tr', {},
-            el('td', { class: 'sym', text: q.symbol }),
+            symCell(q.symbol),
             el('td', { text: fmt(q.price) }),
             el('td', { class: dir, text: `${arrow} ${sign}${fmt(Math.abs(q.change))} (${sign}${fmt(Math.abs(q.pct))}%)` })));
         });
