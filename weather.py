@@ -18,7 +18,7 @@ from flask import Blueprint, jsonify
 bp = Blueprint("weather", __name__)
 
 API = "https://api.ambientweather.net/v1/devices"
-KEY_FILE = Path(__file__).parent / "data" / "ambient.json"
+KEY_FILE = Path(os.environ.get("START_PAGE_DATA") or Path(__file__).parent / "data") / "ambient.json"
 CACHE_TTL = 60   # the API allows about one request per second; stations report every 1-5 min
 
 _cache = {"at": 0.0, "data": None}

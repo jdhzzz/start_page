@@ -27,7 +27,8 @@ from health import bp as health_bp
 
 BASE = Path(__file__).parent
 STATIC = BASE / "static"
-DATA = BASE / "data"
+# START_PAGE_DATA lets a second copy (e.g. a guest demo) keep its own layout and keys.
+DATA = Path(os.environ.get("START_PAGE_DATA") or BASE / "data")
 DATA.mkdir(exist_ok=True)
 LAYOUT_FILE = DATA / "layout.json"
 LAYOUT_BAK = DATA / "layout.json.bak"
