@@ -5,6 +5,7 @@ Run:  python app.py   then open http://localhost:5055
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +19,7 @@ import yfinance as yf
 from flask import Flask, jsonify, request, send_from_directory
 
 import netguard
+from cache import cached
 from ribbon import bp as ribbon_bp
 from weather import bp as weather_bp
 from hn import bp as hn_bp
@@ -28,6 +30,8 @@ STATIC = BASE / "static"
 DATA = BASE / "data"
 DATA.mkdir(exist_ok=True)
 LAYOUT_FILE = DATA / "layout.json"
+LAYOUT_BAK = DATA / "layout.json.bak"
+BACKUP_EVERY = 24 * 3600   # seconds between refreshes of the backup copy
 
 #UA = "Mozilla/5.0 (compatible; StartPage/1.0)"
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -35,8 +39,6 @@ SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-^=]{1,15}$")
 
 FEED_TTL = 300   # seconds a fetched feed is reused
 QUOTE_TTL = 60   # seconds a fetched quote is reused
-
-CACHE_MAX = 500  # entries; stops a client filling memory with unique feed URLs
 
 app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024  # layout POSTs are a few KB
@@ -46,25 +48,7 @@ app.register_blueprint(weather_bp)
 app.register_blueprint(hn_bp)
 app.register_blueprint(health_bp)
 
-_cache = {}
-_lock = threading.Lock()
 _layout_lock = threading.Lock()
-
-
-def cached(key, ttl, fn):
-    """Return a cached value for key, or compute it with fn(). Errors are not cached."""
-    now = time.time()
-    with _lock:
-        hit = _cache.get(key)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
-    value = fn()
-    with _lock:
-        if len(_cache) >= CACHE_MAX:
-            for k in [k for k, (t, _) in _cache.items() if now - t > FEED_TTL] or list(_cache)[:CACHE_MAX // 2]:
-                _cache.pop(k, None)
-        _cache[key] = (now, value)
-    return value
 
 
 # ---------- pages ----------
@@ -158,15 +142,39 @@ def api_quotes():
 
 # ---------- layout persistence ----------
 
+def _read_layout(path):
+    """The layout stored in path, or None if there is no file.
+    Raises ValueError if the file is there but isn't a usable layout."""
+    try:
+        text = path.read_text("utf-8")
+    except FileNotFoundError:
+        return None
+    data = json.loads(text)
+    if not isinstance(data, dict) or not isinstance(data.get("columns"), list):
+        raise ValueError("not a layout")
+    return data
+
+
+def _version(layout):
+    v = layout.get("version") if layout else 0
+    return v if isinstance(v, int) and not isinstance(v, bool) else 0
+
+
 @app.get("/api/layout")
 def get_layout():
     with _layout_lock:
-        if LAYOUT_FILE.exists():
-            try:
-                return jsonify(json.loads(LAYOUT_FILE.read_text("utf-8")))
-            except json.JSONDecodeError:
-                pass
-    return jsonify(None)
+        try:
+            return jsonify(_read_layout(LAYOUT_FILE))
+        except (ValueError, OSError):
+            app.logger.exception("layout.json is unreadable; trying the backup")
+        try:
+            backup = _read_layout(LAYOUT_BAK)
+        except (ValueError, OSError):
+            backup = None
+    if backup is not None:
+        return jsonify(backup)
+    # An error, not "no layout": the page must not save defaults over whatever is there.
+    return jsonify(error="The saved layout file is damaged"), 500
 
 
 @app.post("/api/layout")
@@ -176,9 +184,25 @@ def save_layout():
         return jsonify(error="Invalid layout"), 400
     tmp = LAYOUT_FILE.with_suffix(".tmp")
     with _layout_lock:
+        try:
+            current = _read_layout(LAYOUT_FILE)
+        except (ValueError, OSError):
+            current = None   # damaged: let this save replace it
+        if current is not None:
+            # Each save carries the version it was based on. A mismatch means another
+            # tab or device saved in between, so refuse rather than overwrite its work.
+            if _version(payload) != _version(current):
+                return jsonify(error="The layout was changed somewhere else", layout=current), 409
+            try:
+                if (not LAYOUT_BAK.exists()
+                        or time.time() - LAYOUT_BAK.stat().st_mtime > BACKUP_EVERY):
+                    shutil.copyfile(LAYOUT_FILE, LAYOUT_BAK)
+            except OSError:
+                app.logger.exception("couldn't refresh layout.json.bak")
+        payload["version"] = _version(current) + 1
         tmp.write_text(json.dumps(payload, indent=2), "utf-8")
         os.replace(tmp, LAYOUT_FILE)
-    return jsonify(ok=True)
+    return jsonify(ok=True, version=payload["version"])
 
 
 if __name__ == "__main__":

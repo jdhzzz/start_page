@@ -2,6 +2,7 @@
 
 A personal widget portal in the style of iGoogle: draggable widgets for RSS feeds,
 stock quotes, Hacker News, weather, notes, bookmarks and a clock. Your layout is saved to `data/layout.json`.
+A daily backup is kept beside it as `data/layout.json.bak`, and is used automatically if the main file is damaged.
 
 ## Run it
 

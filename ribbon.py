@@ -215,27 +215,39 @@ def build_tile(item):
         return {"name": item["name"], "symbol": sym, "error": (str(exc) or type(exc).__name__)[:120]}
 
 
+_last_good = {}   # tile name -> its last good tile, shown if a later fetch is slow
+SLOW_RETRY = 10   # seconds a response with slow tiles is reused before trying again
+
+
 @bp.get("/api/ribbon")
 def api_ribbon():
     with _lock:
         if _cache["data"] is not None and time.time() - _cache["at"] < CACHE_TTL:
             return jsonify(tiles=_cache["data"])
+
         def build_row(item):
             tile = build_tile(item)
             tile["row"] = item.get("row", 1)
+            if not tile.get("error"):
+                _last_good[item["name"]] = tile
             return tile
 
         pool = ThreadPoolExecutor(max_workers=8)
         futures = [pool.submit(build_row, item) for item in TILES]
         deadline = time.time() + 15
         tiles = []
+        slow = False
         for item, fut in zip(TILES, futures):
             try:
                 tiles.append(fut.result(timeout=max(0.1, deadline - time.time())))
             except Exception:
-                tiles.append({"name": item["name"], "symbol": item["symbol"],
-                              "row": item.get("row", 1), "error": "Still loading, try again shortly"})
-        pool.shutdown(wait=False)   # slow tiles keep working in the background and fill the cache
+                slow = True
+                tiles.append(_last_good.get(item["name"]) or {
+                    "name": item["name"], "symbol": item["symbol"],
+                    "row": item.get("row", 1), "error": "Still loading, try again shortly"})
+        # Slow tiles keep working in the background and land in _last_good, so a
+        # response that had to stand in for them is only reused briefly.
+        pool.shutdown(wait=False)
         if any(not t.get("error") for t in tiles):
-            _cache.update(at=time.time(), data=tiles)
+            _cache.update(at=time.time() - (CACHE_TTL - SLOW_RETRY if slow else 0), data=tiles)
         return jsonify(tiles=tiles)

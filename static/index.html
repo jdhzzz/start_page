@@ -148,7 +148,13 @@ h3.day { font-size: 13px; color: var(--muted); margin: 14px 0 8px; padding-botto
 .health.warn .dot { background: var(--warn); }
 .health.down .dot { background: var(--down); }
 .health.down .hlabel { color: var(--down); }
-#status { position: fixed; right: 16px; bottom: 12px; font-size: 13px; color: var(--muted); }
+#notices { position: fixed; right: 16px; bottom: 12px; display: grid; gap: 6px; justify-items: end; font-size: 13px; }
+#status, #toast {
+  display: flex; gap: 10px; align-items: center; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px;
+}
+#status:empty, #toast:empty { display: none; }
+#notices .btn { padding: 3px 10px; }
 </style>
 </head>
 <body>
@@ -172,7 +178,7 @@ h3.day { font-size: 13px; color: var(--muted); margin: 14px 0 8px; padding-botto
   <a id="health" class="health" hidden target="_blank" rel="noopener"><span class="dot"></span><span class="hlabel"></span></a>
 </header>
 <main id="board" aria-label="Widgets"></main>
-<div id="status" role="status"></div>
+<div id="notices"><div id="toast" role="status"></div><div id="status" role="status"></div></div>
 
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -205,11 +211,11 @@ const TYPES = {
     defaults: () => ({ title: 'News', config: { url: '', count: 8 } }),
     fields: [
       { key: 'url', label: 'Feed URL', kind: 'text' },
-      { key: 'count', label: 'Headlines to show', kind: 'number' },
+      { key: 'count', label: 'Headlines to show', kind: 'number', min: 1, max: 50, def: 8 },
     ],
     async render(body, w) {
       if (!w.config.url) { body.replaceChildren(el('p', { class: 'empty', text: 'Open settings and paste a feed URL.' })); return; }
-      body.textContent = 'Loading…';
+      if (!body.firstChild) body.textContent = 'Loading…';
       try {
         const r = await fetch(`/api/feed?url=${encodeURIComponent(w.config.url)}&n=${w.config.count}`);
         const d = await r.json();
@@ -234,15 +240,15 @@ const TYPES = {
     accent: '#e8590c', interval: 600000,
     defaults: () => ({ title: 'Hacker News', maxLines: 40, config: { days: 3, mode: 'top20', min: 20, sort: 'points' } }),
     fields: [
-      { key: 'days', label: 'Days to show (1–7)', kind: 'number' },
-      { key: 'min', label: 'Minimum points for a story to count (stands in for “reached the front page”); the All button ignores this', kind: 'number' },
+      { key: 'days', label: 'Days to show (1–7)', kind: 'number', min: 1, max: 7, def: 3 },
+      { key: 'min', label: 'Minimum points for a story to count (stands in for “reached the front page”); the All button ignores this', kind: 'number', min: 1, max: 500, def: 20 },
       { key: 'sort', label: 'Order within each day', kind: 'select',
         options: [['points', 'Most points first'], ['time', 'Newest first']] },
     ],
     async render(body, w) {
       const c = w.config;
       const days = Math.max(1, Math.min(7, parseInt(c.days, 10) || 3));
-      const minPts = Math.max(1, parseInt(c.min, 10) || 20);
+      const minPts = Math.max(1, Math.min(500, parseInt(c.min, 10) || 20));
       if (!body.firstChild) body.textContent = 'Loading…';
       const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
       const ranges = [...Array(days).keys()].map(i => {
@@ -465,15 +471,82 @@ const byId = new Map();
 const board = $('#board');
 
 /* ---------- saving ---------- */
-let saveTimer;
-function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 400); }
+// The server numbers each saved layout. A save says which number it was based on and
+// is refused if another tab or device has saved since, so stale pages can't overwrite
+// newer notes. canSave stays false until a layout has loaded, so a failed load can
+// never be followed by saving the defaults over the real thing.
+let saveTimer, layoutVersion = 0, canSave = false, dirty = false, saving = false;
+const statusBox = $('#status');
+function saveSoon() { dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(save, 400); }
 async function save() {
+  clearTimeout(saveTimer);
+  if (!canSave || !dirty || saving) return;   // a running save picks up later edits when it ends
+  saving = true; dirty = false;
+  let retryIn = 0;
   try {
-    const r = await fetch('/api/layout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) });
+    const body = JSON.stringify({ ...state, version: layoutVersion });
+    const r = await fetch('/api/layout', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body, keepalive: body.length < 60000 });   // keepalive lets the save finish as the tab closes
+    if (r.status === 409) {
+      const d = await r.json();
+      adopt(d.layout);
+      const note = 'This page was out of date, so it now shows the layout saved from another tab or device.';
+      statusBox.textContent = note;
+      setTimeout(() => { if (statusBox.textContent === note) statusBox.textContent = ''; }, 8000);
+      return;
+    }
     if (!r.ok) throw new Error();
-    $('#status').textContent = '';
-  } catch { $('#status').textContent = 'Couldn’t save your layout. Is the server running?'; }
+    const d = await r.json();
+    if (Number.isInteger(d.version)) layoutVersion = d.version;
+    statusBox.textContent = '';
+  } catch {
+    dirty = true; retryIn = 5000;
+    statusBox.textContent = 'Couldn’t save your layout. Is the server running? Trying again…';
+  } finally {
+    saving = false;
+    if (dirty && canSave) { clearTimeout(saveTimer); saveTimer = setTimeout(save, retryIn || 400); }
+  }
 }
+const validLayout = l => l && Array.isArray(l.columns) && l.columns.length === 3 && l.columns.every(Array.isArray);
+// Replace what's on the page with a layout from the server.
+function adopt(layout) {
+  dirty = false;
+  layoutVersion = Number.isInteger(layout?.version) ? layout.version : 0;
+  state = validLayout(layout) ? { columns: layout.columns } : DEFAULT_LAYOUT();
+  canSave = true;
+  renderBoard();
+}
+async function loadLayout() {
+  try {
+    const r = await fetch('/api/layout');
+    if (!r.ok) throw new Error();
+    adopt(await r.json());   // null means nothing saved yet: start from the defaults
+    statusBox.textContent = '';
+    return true;
+  } catch {
+    if (!state) { state = DEFAULT_LAYOUT(); renderBoard(); }
+    canSave = false;
+    statusBox.replaceChildren('Couldn’t load your saved layout, so changes here won’t be saved.',
+      el('button', { class: 'btn', type: 'button', text: 'Try again', onclick: loadLayout }));
+    return false;
+  }
+}
+// Save at once when the tab is hidden or closed, so the last keystrokes aren't lost.
+addEventListener('pagehide', () => { if (dirty) save(); });
+// Back on the tab: pick up a layout saved elsewhere, then refresh anything overdue.
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) { if (dirty) save(); return; }
+  if (!canSave) await loadLayout();
+  else if (!dirty && !saving) {
+    try {
+      const r = await fetch('/api/layout');
+      const saved = r.ok ? await r.json() : null;
+      const v = Number.isInteger(saved?.version) ? saved.version : 0;
+      if (saved && v !== layoutVersion && !dirty && !saving) adopt(saved);
+    } catch {}
+  }
+  refreshOverdue();
+});
 function syncFromDom() {
   state.columns = [...board.children].map(col => [...col.querySelectorAll('.widget')].map(n => byId.get(n.dataset.id)));
   saveSoon();
@@ -498,8 +571,17 @@ function applyHeight(node, w) {
 }
 function runWidget(node, w) {
   if (node._cleanup) { node._cleanup(); node._cleanup = null; }
+  node._ran = Date.now();
   const out = TYPES[w.type].render($('.wbody', node), w);
   if (typeof out === 'function') node._cleanup = out;
+}
+// Timers skip hidden tabs, so on return run whatever missed its turn.
+function refreshOverdue() {
+  board.querySelectorAll('.widget').forEach(node => {
+    const w = byId.get(node.dataset.id), every = w && TYPES[w.type].interval;
+    if (every && !w.collapsed && Date.now() - node._ran >= every) runWidget(node, w);
+  });
+  if (Date.now() - ribbonAt >= 60000) loadRibbon();
 }
 function buildWidget(w) {
   const T = TYPES[w.type];
@@ -525,11 +607,18 @@ function buildWidget(w) {
     saveSoon();
   };
   del.onclick = () => {
+    const col = node.parentNode, nextId = node.nextElementSibling?.dataset.id;
     if (node._cleanup) node._cleanup();
     clearInterval(node._timer);
     byId.delete(w.id);
     node.remove();
     syncFromDom();
+    offerUndo(`Removed “${w.title}”.`, () => {
+      const next = nextId && board.querySelector(`.widget[data-id="${nextId}"]`);
+      const home = next ? next.parentNode : (col.isConnected ? col : board.firstElementChild);
+      home.insertBefore(buildWidget(w), next || null);
+      syncFromDom();
+    });
   };
   gear.onclick = () => {
     if (!settings.hidden) { settings.hidden = true; return; }
@@ -549,11 +638,19 @@ function buildWidget(w) {
   if (T.interval) node._timer = setInterval(() => { if (!w.collapsed && !document.hidden) runWidget(node, w); }, T.interval);
   return node;
 }
+let toastTimer;
+function offerUndo(text, undo) {
+  const toast = $('#toast');
+  const clear = () => { clearTimeout(toastTimer); toast.replaceChildren(); };
+  clearTimeout(toastTimer);
+  toast.replaceChildren(text, el('button', { class: 'btn', type: 'button', text: 'Undo', onclick: () => { clear(); undo(); } }));
+  toastTimer = setTimeout(clear, 10000);
+}
 function openSettings(node, w, panel, titleEl) {
   const T = TYPES[w.type];
   const inputs = {};
   const rows = [];
-  const mkField = (label, kind, value, options) => {
+  const mkField = (label, kind, value, options, f = {}) => {
     let input;
     if (kind === 'select') {
       input = el('select');
@@ -561,13 +658,13 @@ function openSettings(node, w, panel, titleEl) {
     } else {
       input = kind === 'textarea' ? el('textarea') : el('input', { type: kind === 'number' ? 'number' : 'text' });
     }
-    if (kind === 'number') { input.min = 1; input.max = 50; }
+    if (kind === 'number') { input.min = f.min ?? 1; input.max = f.max ?? 50; }
     input.value = value ?? '';
     rows.push(el('label', {}, label, input));
     return input;
   };
   const titleIn = mkField('Title', 'text', w.title);
-  T.fields.forEach(f => { inputs[f.key] = mkField(f.label, f.kind, w.config[f.key], f.options); });
+  T.fields.forEach(f => { inputs[f.key] = mkField(f.label, f.kind, w.config[f.key], f.options, f); });
   const linesIn = mkField('Maximum height in lines of text; blank or “none” for no limit (a headline takes about two lines)', 'text', w.maxLines || '');
   const saveBtn = el('button', { class: 'btn primary', type: 'button', text: 'Save' });
   const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
@@ -580,7 +677,8 @@ function openSettings(node, w, panel, titleEl) {
     titleEl.textContent = w.title;
     T.fields.forEach(f => {
       const v = inputs[f.key].value;
-      w.config[f.key] = f.kind === 'number' ? Math.max(1, Math.min(50, parseInt(v, 10) || 8)) : v.trim();
+      w.config[f.key] = f.kind === 'number'
+        ? Math.max(f.min ?? 1, Math.min(f.max ?? 50, parseInt(v, 10) || (f.def ?? 8))) : v.trim();
     });
     const lines = parseInt(linesIn.value, 10);
     w.maxLines = lines > 0 ? Math.min(lines, 500) : null;
@@ -632,8 +730,10 @@ function sparkline(points, prev, dir) {
   svg.append(base, line);
   return svg;
 }
+let ribbonAt = 0;
 async function loadRibbon() {
   const box = $('#ribbon');
+  ribbonAt = Date.now();
   try {
     const r = await fetch('/api/ribbon');
     const d = await r.json();
@@ -720,15 +820,7 @@ loadHealth();
 setInterval(() => { if (!document.hidden) loadHealth(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadHealth(); });
 
-(async function init() {
-  try {
-    const r = await fetch('/api/layout');
-    const saved = await r.json();
-    state = saved && Array.isArray(saved.columns) && saved.columns.length === 3 ? saved : DEFAULT_LAYOUT();
-  } catch { state = DEFAULT_LAYOUT(); }
-  renderBoard();
-  if (!state.columns.flat().length) { state = DEFAULT_LAYOUT(); renderBoard(); }
-})();
+loadLayout();
 </script>
 </body>
 </html>
