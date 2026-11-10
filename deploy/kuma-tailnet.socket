@@ -1,0 +1,13 @@
+# Relays Uptime Kuma (on the LAN) to Tailscale devices, so the start page's health
+# light can link to it when you're away from home. Listens on zeus's Tailscale
+# address only; nothing is opened on the LAN or the internet.
+[Unit]
+Description=Uptime Kuma relay for Tailscale devices
+
+[Socket]
+ListenStream=100.87.91.81:3001
+# Bind even if Tailscale isn't up yet at boot
+FreeBind=yes
+
+[Install]
+WantedBy=sockets.target

@@ -12,7 +12,7 @@ WorkingDirectory=/srv/shared/python/start_page
 Environment=HOST=0.0.0.0
 Environment=PORT=5055
 # Hostnames (not IPs) the page may be opened by, besides localhost and zeus/zeus.local
-Environment=START_PAGE_HOSTS=zeus.home.arpa
+Environment=START_PAGE_HOSTS=zeus.home.arpa,zeus.lan
 # yfinance's cache goes here instead of ~/.cache (home dirs are hidden below)
 Environment=XDG_CACHE_HOME=/var/cache/start-page
 CacheDirectory=start-page

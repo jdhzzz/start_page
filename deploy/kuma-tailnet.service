@@ -1,0 +1,12 @@
+[Unit]
+Description=Uptime Kuma relay for Tailscale devices
+Requires=kuma-tailnet.socket
+After=kuma-tailnet.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=5min 192.168.5.25:3001
+DynamicUser=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes

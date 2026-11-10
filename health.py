@@ -4,15 +4,21 @@ Set KUMA_URL (e.g. http://192.168.5.25:3001) and optionally KUMA_SLUG (the
 status page's slug, default "home"). KUMA_LINK overrides where the light links
 to (default: KUMA_URL/status/KUMA_SLUG). Without KUMA_URL the light is hidden.
 
+KUMA_LINK_TAILNET, if set, is the link given to devices that reach the page over
+Tailscale, where LAN names and addresses don't work. "{host}" in it becomes the
+name or address the device used for the start page, e.g.
+http://{host}:3001/status/home with deploy/kuma-tailnet.socket relaying that port.
+
 This is a fixed, admin-configured URL (not user input), so it may point at the
 LAN, unlike the feed widget's fetches.
 """
+import ipaddress
 import os
 import threading
 import time
 
 import requests
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 bp = Blueprint("health", __name__)
 
@@ -28,6 +34,26 @@ def _config():
     slug = os.environ.get("KUMA_SLUG", "home").strip() or "home"
     link = os.environ.get("KUMA_LINK", "").strip() or (f"{base}/status/{slug}" if base else "")
     return base, slug, link
+
+
+TAILNETS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def _link_for_client(link):
+    """The Kuma link this client can open: the Tailscale one for Tailscale devices."""
+    remote = os.environ.get("KUMA_LINK_TAILNET", "").strip()
+    if not remote:
+        return link
+    try:
+        ip = ipaddress.ip_address(request.remote_addr or "")
+    except ValueError:
+        return link
+    if getattr(ip, "ipv4_mapped", None):
+        ip = ip.ipv4_mapped
+    if not any(ip in net for net in TAILNETS):
+        return link
+    host = request.host.rsplit(":", 1)[0] if not request.host.endswith("]") else request.host
+    return remote.replace("{host}", host)
 
 
 def summarise(page, beats):
@@ -80,13 +106,12 @@ def api_health():
     now = time.time()
     with _lock:
         if _cache["value"] and now - _cache["at"] < TTL:
-            return jsonify(_cache["value"])
+            return jsonify(**_cache["value"], link=_link_for_client(link))
     try:
         value = fetch(base, slug)
     except (requests.RequestException, ValueError):
         # If monitoring itself is unreachable, that's a problem worth showing.
         value = {"state": "down", "problems": ["Can't reach Uptime Kuma"], "total": 0}
-    value["link"] = link
     with _lock:
         _cache.update(at=now, value=value)
-    return jsonify(value)
+    return jsonify(**value, link=_link_for_client(link))
