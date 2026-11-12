@@ -112,7 +112,7 @@ def api_feed():
 def fetch_quote(symbol):
     info = yf.Ticker(symbol).fast_info
     price = float(info["last_price"])
-    prev = float(info["previous_close"])
+    prev = float(info["regular_market_previous_close"])
     change = price - prev
     pct = (change / prev * 100) if prev else 0.0
     return {"symbol": symbol, "price": price, "change": change, "pct": pct}

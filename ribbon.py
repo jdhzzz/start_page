@@ -110,7 +110,7 @@ def make_tile(name, symbol, s, mode, prev=None, note=None):
     price = float(s.iloc[-1])
     if prev is None:
         try:
-            prev = float(yf.Ticker(symbol).fast_info["previous_close"])
+            prev = float(yf.Ticker(symbol).fast_info["regular_market_previous_close"])
         except Exception:
             pass
     if not prev:
