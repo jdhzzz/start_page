@@ -40,6 +40,7 @@ SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-^=]{1,15}$")
 
 FEED_TTL = 300   # seconds a fetched feed is reused
 QUOTE_TTL = 60   # seconds a fetched quote is reused
+NAME_TTL = 24 * 3600   # seconds a ticker's company name is reused
 
 app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024  # layout POSTs are a few KB
@@ -118,11 +119,34 @@ def fetch_quote(symbol):
     return {"symbol": symbol, "price": price, "change": change, "pct": pct}
 
 
+# Fund issuers and company suffixes that waste the few characters the widget shows.
+_NAME_PREFIX = re.compile(r"^(State Street SPDR|State Street|SPDR|Invesco|iShares|Vanguard|Schwab|ProShares)\s+")
+_NAME_SUFFIX = re.compile(r",?\s+(Series \d+|Inc\.?|Corp\.?|Corporation|Company|Co\.|Ltd\.?|PLC|plc|N\.V\.|S\.A\.|Holdings|Group)(\s+New)?$")
+
+
+def fetch_name(symbol):
+    """A short display name for a ticker, e.g. AAPL -> Apple. Slow call, so cached for a day."""
+    info = yf.Ticker(symbol).info
+    name = (info.get("displayName") or info.get("shortName") or info.get("longName") or "").strip()
+    if not name:
+        raise ValueError("no name")   # not cached, so it is retried next time
+    short = _NAME_SUFFIX.sub("", _NAME_PREFIX.sub("", name)).strip(" ,")
+    return short or name
+
+
+def safe_name(symbol):
+    try:
+        return cached(f"name:{symbol}", NAME_TTL, lambda: fetch_name(symbol))
+    except Exception:
+        return ""
+
+
 def safe_quote(symbol):
     try:
-        return cached(f"quote:{symbol}", QUOTE_TTL, lambda: fetch_quote(symbol))
+        quote = cached(f"quote:{symbol}", QUOTE_TTL, lambda: fetch_quote(symbol))
     except Exception:
         return {"symbol": symbol, "error": "No data"}
+    return {**quote, "name": safe_name(symbol)}
 
 
 @app.get("/api/quotes")

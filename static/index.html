@@ -90,7 +90,10 @@ table.quotes { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 .quotes td { padding: 5px 0; border-bottom: 1px solid var(--line); }
 .quotes tr:last-child td { border-bottom: 0; }
 .quotes td:nth-child(n+2) { text-align: right; padding-left: 10px; }
-.quotes .sym { font-weight: 700; }
+.quotes td:nth-child(n+2) { white-space: nowrap; }
+/* The ticker cell takes whatever width the numbers leave; the name is cut to fit it. */
+.quotes .sym { font-weight: 700; width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quotes .sym .name { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 6px; }
 .quotes .sym a { color: inherit; text-decoration: none; }
 .quotes .sym a:hover { text-decoration: underline; }
 .up { color: var(--up); } .down { color: var(--down); }
@@ -344,8 +347,12 @@ const TYPES = {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || r.status);
         const tb = el('tbody');
-        const symCell = s => el('td', { class: 'sym' },
-          el('a', { href: `https://finance.yahoo.com/quote/${encodeURIComponent(s)}`, target: '_blank', rel: 'noopener', text: s }));
+        const symCell = (s, name) => {
+          const td = el('td', { class: 'sym' },
+            el('a', { href: `https://finance.yahoo.com/quote/${encodeURIComponent(s)}`, target: '_blank', rel: 'noopener', text: s }));
+          if (name) { td.append(el('span', { class: 'name', text: name })); td.title = name; }
+          return td;
+        };
         d.quotes.forEach(q => {
           if (q.error) {
             tb.append(el('tr', {}, symCell(q.symbol), el('td', { colspan: 2, text: q.error })));
@@ -355,7 +362,7 @@ const TYPES = {
           const arrow = q.change >= 0 ? '▲' : '▼';
           const sign = q.change >= 0 ? '+' : '−';
           tb.append(el('tr', {},
-            symCell(q.symbol),
+            symCell(q.symbol, q.name),
             el('td', { text: fmt(q.price) }),
             el('td', { class: dir, text: `${arrow} ${sign}${fmt(Math.abs(q.change))} (${sign}${fmt(Math.abs(q.pct))}%)` })));
         });
