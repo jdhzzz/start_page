@@ -121,8 +121,11 @@ ul.links { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .tile.bad { color: var(--muted); }
 .tile svg { display: block; flex: none; }
 .tile polyline { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
-.tile .up polyline { stroke: var(--up); } .tile .down polyline { stroke: var(--down); }
-.tile .flat polyline { stroke: var(--muted); }
+.tile svg { --above: var(--up); --below: var(--down); }
+.tile svg.flat { --above: var(--muted); --below: var(--muted); }
+.tile .above { stroke: var(--above); } .tile .below { stroke: var(--below); }
+.tile .area { stroke: none; }
+.tile stop.above { stop-color: var(--above); } .tile stop.below { stop-color: var(--below); }
 .tchg.flat { color: var(--ink); }
 .tile .base { stroke: var(--line); stroke-dasharray: 3 3; stroke-width: 1; }
 .wx .big { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
@@ -733,22 +736,38 @@ board.addEventListener('drop', e => {
 
 /* ---------- market ribbon ---------- */
 const SVGNS = 'http://www.w3.org/2000/svg';
+let sparkSeq = 0;
 function sparkline(points, prev, dir) {
+  // Line and shading are split at the baseline: green above it, red below,
+  // with the fill fading out toward the baseline (as on finance.yahoo.com).
   const W = 96, H = 30, pad = 2;
   const min = Math.min(...points, prev), max = Math.max(...points, prev), span = max - min || 1;
   const x = i => pad + i * (W - 2 * pad) / Math.max(1, points.length - 1);
   const y = v => H - pad - (v - min) / span * (H - 2 * pad);
-  const svg = document.createElementNS(SVGNS, 'svg');
-  svg.setAttribute('width', W); svg.setAttribute('height', H);
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', dir);
-  const base = document.createElementNS(SVGNS, 'line');
-  base.setAttribute('class', 'base');
-  base.setAttribute('x1', 0); base.setAttribute('x2', W);
-  base.setAttribute('y1', y(prev)); base.setAttribute('y2', y(prev));
-  const line = document.createElementNS(SVGNS, 'polyline');
-  line.setAttribute('points', points.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' '));
-  svg.append(base, line);
+  const mk = (tag, attrs = {}) => {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+  const id = 'sp' + (++sparkSeq), yb = y(prev);
+  const svg = mk('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true', class: dir });
+  const pts = points.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  const area = `M${x(0).toFixed(1)},${yb.toFixed(1)} L${pts.join(' L')} L${x(points.length - 1).toFixed(1)},${yb.toFixed(1)} Z`;
+  const defs = mk('defs');
+  const half = (side, y0, y1, far) => {
+    const clip = mk('clipPath', { id: `${id}c${side}` });
+    clip.append(mk('rect', { x: 0, y: y0, width: W, height: Math.max(0, y1 - y0) }));
+    // gradient runs from the far edge of this half (strongest) to the baseline (transparent)
+    const grad = mk('linearGradient', { id: `${id}g${side}`, gradientUnits: 'userSpaceOnUse', x1: 0, x2: 0, y1: far, y2: yb });
+    grad.append(mk('stop', { offset: 0, class: side, 'stop-opacity': 0.38 }), mk('stop', { offset: 1, class: side, 'stop-opacity': 0 }));
+    defs.append(clip, grad);
+    const g = mk('g', { 'clip-path': `url(#${id}c${side})` });
+    g.append(mk('path', { class: 'area', d: area, fill: `url(#${id}g${side})` }), mk('polyline', { class: side, points: pts.join(' ') }));
+    return g;
+  };
+  const above = half('above', 0, yb, pad), below = half('below', yb, H, H - pad);
+  const base = mk('line', { class: 'base', x1: 0, x2: W, y1: yb, y2: yb });
+  svg.append(defs, base, above, below);
   return svg;
 }
 let ribbonAt = 0;
