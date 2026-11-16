@@ -3,6 +3,7 @@
 Run:  python app.py   then open http://localhost:5055
 """
 import json
+import math
 import os
 import re
 import shutil
@@ -24,6 +25,7 @@ from ribbon import bp as ribbon_bp
 from weather import bp as weather_bp
 from hn import bp as hn_bp
 from health import bp as health_bp
+from gpu import bp as gpu_bp
 
 BASE = Path(__file__).parent
 STATIC = BASE / "static"
@@ -49,6 +51,7 @@ app.register_blueprint(ribbon_bp)
 app.register_blueprint(weather_bp)
 app.register_blueprint(hn_bp)
 app.register_blueprint(health_bp)
+app.register_blueprint(gpu_bp)
 
 _layout_lock = threading.Lock()
 
@@ -114,6 +117,12 @@ def fetch_quote(symbol):
     info = yf.Ticker(symbol).fast_info
     price = float(info["last_price"])
     prev = float(info["regular_market_previous_close"])
+    # Some symbols (DX-Y.NYB, the dollar index) have no regular-session figure: Yahoo
+    # sends NaN, which isn't valid JSON and would break the whole watchlist.
+    if not math.isfinite(prev):
+        prev = float(info["previous_close"])
+    if not (math.isfinite(price) and math.isfinite(prev)):
+        raise ValueError("no usable quote")
     change = price - prev
     pct = (change / prev * 100) if prev else 0.0
     return {"symbol": symbol, "price": price, "change": change, "pct": pct}

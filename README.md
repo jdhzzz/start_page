@@ -22,6 +22,12 @@ Use `PORT=8080 python app.py` to change the port.
 - ⚙ edits a widget (feed URL, tickers, bookmarks); ▾ collapses it; × removes it.
 - "Add a widget…" in the top bar adds a new one.
 - The ribbon across the top shows major indexes with sparklines. When the stock market is closed it switches to futures, and when futures are also closed it shows the last close. It refreshes every minute.
+- The ribbon's "H100 rental" tile and the "GPU rental prices" widget track what an hour of an AI chip
+  costs to rent. Read them like a credit spread turned upside down: falling prices are the warning sign
+  (weaker demand or too much supply). The tile turns amber when the 7-day average is 10% below its
+  3-month high and red at 20%; the widget marks a chip the same way against its high for the year.
+  The tile uses Ornn's daily index; the widget uses GetDeploying's weekly median list price (CC BY 4.0),
+  so the two show different dollar levels. Neither needs a key. Chips and thresholds are set at the top of `gpu.py`.
 - Feeds refresh every 10 minutes, quotes every minute (cached server-side).
 - "Hacker News (daily top)" groups stories by day and shows the Top 10, Top 20, Top 50% or all of
   each day's stories, using the Hacker News search API (no key needed).

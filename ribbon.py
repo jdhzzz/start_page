@@ -19,6 +19,8 @@ import requests
 import yfinance as yf
 from flask import Blueprint, jsonify
 
+import gpu
+
 bp = Blueprint("ribbon", __name__)
 
 # name/symbol = the index; fut/fut_name = the futures shown when the index is closed.
@@ -38,6 +40,9 @@ TILES = [
     {"row": 2, "name": "High-yield spread", "symbol": "BAMLH0A0HYM2", "kind": "fred"},
     # kind "trend": daily Yahoo series shown as plain points with a 3-month sparkline.
     {"row": 2, "name": "MOVE (rate vol)", "symbol": "^MOVE", "kind": "trend"},
+    # kind "gpu": Ornn's daily rental-price index for a chip, in $ per GPU-hour (see gpu.py).
+    # Here falling is the warning sign; the tile is flagged when it drops well below its 3-month high.
+    {"row": 2, "name": "H100 rental", "symbol": "H100 SXM", "kind": "gpu"},
     {"row": 2, "name": "Gold", "symbol": "GC=F"},
     {"row": 2, "name": "Crude oil", "symbol": "CL=F"},
     {"row": 1, "name": "Bitcoin", "symbol": "BTC-USD"},
@@ -113,7 +118,7 @@ def make_tile(name, symbol, s, mode, prev=None, note=None):
             prev = float(yf.Ticker(symbol).fast_info["regular_market_previous_close"])
         except Exception:
             pass
-    if not prev:
+    if not prev or prev != prev:   # missing, or NaN (Yahoo has no regular-session close for some symbols)
         prev = float(s.iloc[0])
     change = price - prev
     pct = change / prev * 100 if prev else 0.0
@@ -192,6 +197,13 @@ def build_tile(item):
         if item.get("kind") == "fred":
             return series_tile(item, fetch_fred(sym), "3-month trend, daily",
                                f"https://fred.stlouisfed.org/series/{sym}")
+        if item.get("kind") == "gpu":
+            daily = gpu.ornn_daily(sym)
+            below = gpu.off_high(daily)
+            near = "At 3-mo high" if below > -0.5 else f"{abs(below):.0f}% off 3-mo high"
+            tile = series_tile(item, daily, near, gpu.ORNN_PAGE, unit="usdhr")
+            tile["flag"] = gpu.flag_for(below)
+            return tile
         if item.get("kind") == "trend":
             return series_tile(item, daily_closes(sym), "3-month trend", unit=None)
         if item.get("kind") == "yield":

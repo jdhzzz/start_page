@@ -131,6 +131,37 @@ ul.links { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .tile stop.above { stop-color: var(--above); } .tile stop.below { stop-color: var(--below); }
 .tchg.flat { color: var(--ink); }
 .tile .base { stroke: var(--line); stroke-dasharray: 3 3; stroke-width: 1; }
+.tile.flag-warn { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.tile.flag-alert { border-color: var(--down); box-shadow: inset 3px 0 0 var(--down); }
+.tile.flag-warn .tnote { color: var(--warn); font-weight: 700; }
+.tile.flag-alert .tnote { color: var(--down); font-weight: 700; }
+/* GPU rental chart: three series colors, checked for color-blind separation on both themes */
+.gpu { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; }
+@media (prefers-color-scheme: dark) { .gpu { --s1: #3987e5; --s2: #d95926; --s3: #199e70; } }
+.gpu .plot { position: relative; }
+.gpu svg { display: block; width: 100%; touch-action: pan-y; }
+.gpu .grid { stroke: var(--line); stroke-width: 1; }
+.gpu .axis { fill: var(--muted); font-size: 11px; }
+.gpu .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.gpu .endlabel { fill: var(--ink); font-size: 12px; font-weight: 700; }
+.gpu .dot { stroke: var(--panel); stroke-width: 2; }
+.gpu .cross { stroke: var(--muted); stroke-width: 1; }
+.gpu .tip {
+  position: absolute; top: 0; pointer-events: none; z-index: 1; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 9px; font-size: 13px; box-shadow: 0 3px 10px rgb(0 0 0 / .18);
+}
+.gpu .tip[hidden] { display: none; }
+.gpu .tip .when { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+.gpu .tip .trow { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.gpu .tip .trow b { margin-right: auto; padding-right: 10px; font-weight: 400; color: var(--muted); }
+.gpu .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 7px; }
+.gpu table { margin-top: 6px; }
+.gpu th { font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; padding: 0 0 2px 10px; white-space: nowrap; }
+.gpu th:first-child { text-align: left; padding-left: 0; }
+.gpu td.flag-warn { color: var(--warn); font-weight: 700; }
+.gpu td.flag-alert { color: var(--down); font-weight: 700; }
+.gpu .meta { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .wx .big { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .wx .temp { font-size: 42px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .wx .feels { color: var(--muted); }
@@ -186,6 +217,7 @@ h3.day { font-size: 13px; color: var(--muted); margin: 14px 0 8px; padding-botto
     <option value="rss">News feed (RSS)</option>
     <option value="hn">Hacker News (daily top)</option>
     <option value="stocks">Stock watchlist</option>
+    <option value="gpu">GPU rental prices</option>
     <option value="notes">Notes</option>
     <option value="links">Bookmarks</option>
     <option value="weather">Weather (Ambient station)</option>
@@ -370,6 +402,36 @@ const TYPES = {
       } catch (e) {
         body.replaceChildren(el('p', { class: 'err', text: `Couldn’t load quotes: ${e.message}` }));
       }
+    },
+  },
+  gpu: {
+    accent: '#3d7a8c', interval: 3600000,
+    defaults: () => ({ title: 'GPU rental prices', config: {} }),
+    fields: [],
+    render(body, w) {
+      let data = null, lastWidth = 0, alive = true;
+      const draw = () => {
+        if (!data || !body.clientWidth) return;
+        lastWidth = body.clientWidth;
+        body.replaceChildren(gpuView(data, lastWidth - 24));   // 24px is the body's side padding
+      };
+      if (!body.firstChild) body.textContent = 'Loading…';
+      (async () => {
+        try {
+          const r = await fetch('/api/gpu');
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || r.status);
+          if (!alive) return;
+          data = d;
+          draw();
+        } catch (e) {
+          if (alive) body.replaceChildren(el('p', { class: 'err', text: `Couldn’t load GPU rental prices: ${e.message}` }));
+        }
+      })();
+      // The chart is drawn at the widget's real width, so redraw when that changes.
+      const ro = new ResizeObserver(() => { if (body.clientWidth && body.clientWidth !== lastWidth) draw(); });
+      ro.observe(body);
+      return () => { alive = false; ro.disconnect(); };
     },
   },
   notes: {
@@ -741,8 +803,110 @@ board.addEventListener('drop', e => {
   marker.remove();
 });
 
-/* ---------- market ribbon ---------- */
+/* ---------- GPU rental chart ---------- */
 const SVGNS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs = {}, text) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (text != null) n.textContent = text;
+  return n;
+}
+// A year of weekly prices for a few chips on one $ axis, with a table underneath
+// that doubles as the legend. Falling prices are the warning sign, so the table's
+// last column says how far each chip sits below its high for the year.
+function gpuView(d, width) {
+  const chips = d.chips, colors = ['var(--s1)', 'var(--s2)', 'var(--s3)'];
+  const W = Math.max(240, width), H = 190, m = { l: 30, r: 44, t: 10, b: 22 };
+  const dates = chips.reduce((a, c) => (c.points.length > a.length ? c.points.map(p => p[0]) : a), []);
+  const all = chips.flatMap(c => c.points.map(p => p[1]));
+  const lo = Math.floor(Math.min(...all)), hi = Math.max(lo + 1, Math.ceil(Math.max(...all)));
+  const x = i => m.l + i * (W - m.l - m.r) / Math.max(1, dates.length - 1);
+  const y = v => H - m.b - (v - lo) / (hi - lo) * (H - m.t - m.b);
+  const day = s => new Date(s + 'T12:00:00');
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img',
+    'aria-label': `Rental price per GPU-hour over the past year for ${chips.map(c => c.name).join(', ')}. The table below has the figures.` });
+
+  const step = Math.max(1, Math.ceil((hi - lo) / 5));
+  for (let v = lo; v <= hi; v += step) {
+    svg.append(svgEl('line', { class: 'grid', x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }),
+      svgEl('text', { class: 'axis', x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }, `$${v}`));
+  }
+  // A label at the first week of every third month; the year is added where it changes.
+  let lastLabelX = -99;
+  dates.forEach((s, i) => {
+    const dt = day(s), firstOfMonth = i > 0 && day(dates[i - 1]).getMonth() !== dt.getMonth();
+    if (!firstOfMonth || dt.getMonth() % 3 || x(i) - lastLabelX < 44 || x(i) > W - m.r - 12) return;
+    lastLabelX = x(i);
+    const label = dt.toLocaleDateString([], dt.getMonth() === 0 ? { month: 'short', year: '2-digit' } : { month: 'short' });
+    svg.append(svgEl('text', { class: 'axis', x: x(i), y: H - 6, 'text-anchor': 'middle' }, label));
+  });
+
+  // Lines end in a dot and a name. Names that would overlap are nudged apart.
+  const offset = c => dates.length - c.points.length;   // a chip with a shorter history starts later
+  const ends = chips.map((c, k) => ({ c, k, y: y(c.points.at(-1)[1]) })).sort((a, b) => a.y - b.y);
+  ends.forEach((e, i) => { e.ly = i ? Math.max(e.y, ends[i - 1].ly + 13) : e.y; });
+  chips.forEach((c, k) => {
+    const pts = c.points.map((p, i) => `${x(i + offset(c)).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+    svg.append(svgEl('polyline', { class: 'series', points: pts, stroke: colors[k] }));
+  });
+  ends.forEach(e => svg.append(
+    svgEl('circle', { class: 'dot', cx: x(dates.length - 1), cy: e.y, r: 4, fill: colors[e.k] }),
+    svgEl('text', { class: 'endlabel', x: x(dates.length - 1) + 8, y: e.ly + 4 }, e.c.name)));
+
+  // Hover or touch: a hairline snaps to the nearest week and one box lists every chip.
+  const cross = svgEl('line', { class: 'cross', y1: m.t, y2: H - m.b, visibility: 'hidden' });
+  const marks = chips.map((c, k) => svgEl('circle', { class: 'dot', r: 4, fill: colors[k], visibility: 'hidden' }));
+  svg.append(cross, ...marks);
+  const tip = el('div', { class: 'tip', hidden: '' });
+  const plot = el('div', { class: 'plot' }, svg, tip);
+  const hide = () => { tip.hidden = true; [cross, ...marks].forEach(n => n.setAttribute('visibility', 'hidden')); };
+  svg.addEventListener('pointerleave', hide);
+  svg.addEventListener('pointermove', e => {
+    const box = svg.getBoundingClientRect();
+    const px = (e.clientX - box.left) * W / box.width;
+    const i = Math.max(0, Math.min(dates.length - 1, Math.round((px - m.l) / ((W - m.l - m.r) / Math.max(1, dates.length - 1)))));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+    const rows = [];
+    chips.forEach((c, k) => {
+      const p = c.points[i - offset(c)];
+      marks[k].setAttribute('visibility', p ? 'visible' : 'hidden');
+      if (!p) return;
+      marks[k].setAttribute('cx', x(i)); marks[k].setAttribute('cy', y(p[1]));
+      rows.push([p[1], el('div', { class: 'trow' },
+        el('span', { class: 'key', style: `background:${colors[k]}` }), el('b', { text: c.name }), `$${fmt(p[1])}`)]);
+    });
+    rows.sort((a, b) => b[0] - a[0]);   // same top-to-bottom order as the lines
+    tip.replaceChildren(el('div', { class: 'when', text: `Week of ${day(dates[i]).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` }),
+      ...rows.map(r => r[1]));
+    tip.hidden = false;
+    const cx = x(i) * box.width / W, tw = tip.offsetWidth;
+    tip.style.left = `${cx + 12 + tw > box.width ? Math.max(0, cx - 12 - tw) : cx + 12}px`;
+  });
+
+  const pctCell = v => {
+    if (v == null) return el('td', { text: '—' });
+    const up = v >= 0;
+    return el('td', { text: `${up ? '▲' : '▼'} ${up ? '+' : '−'}${fmt(Math.abs(v), 1)}%` });
+  };
+  const tb = el('tbody');
+  chips.forEach((c, k) => {
+    const high = c.off_high > -0.5 ? el('td', { text: 'At high' })
+      : el('td', { class: c.flag ? `flag-${c.flag}` : '', text: `${c.flag ? '⚠ ' : ''}−${fmt(Math.abs(c.off_high), 1)}%` });
+    tb.append(el('tr', {},
+      el('td', { class: 'sym' }, el('span', { class: 'key', style: `background:${colors[k]}` }), c.name),
+      el('td', { text: `$${fmt(c.latest)}` }), pctCell(c.chg4w), pctCell(c.chg1y), high));
+  });
+  const table = el('table', { class: 'quotes' },
+    el('thead', {}, el('tr', {}, ...['Chip', '$/hr', '4 weeks', '1 year', 'Vs 1-yr high'].map(t => el('th', { scope: 'col', text: t })))), tb);
+  const flagged = chips.filter(c => c.flag).map(c => c.name);
+  const meta = el('p', { class: 'meta' },
+    flagged.length ? `⚠ ${flagged.join(', ')} well below the year’s high: falling rents are the warning sign. ` : 'Falling rents are the warning sign. ',
+    `Median on-demand list price, week of ${day(d.week).toLocaleDateString([], { month: 'short', day: 'numeric' })}. Data: `,
+    el('a', { href: safeHref(d.source_link), target: '_blank', rel: 'noopener', text: d.source }), ` (${d.license}).`);
+  return el('div', { class: 'gpu' }, plot, table, meta);
+}
+
+/* ---------- market ribbon ---------- */
 let sparkSeq = 0;
 function sparkline(points, prev, dir) {
   // Line and shading are split at the baseline: green above it, red below,
@@ -800,6 +964,7 @@ async function loadRibbon() {
         priceText = `${fmt(t.price)}%`;
         chgText = `${up ? '▲' : '▼'} ${sign}${bp < 10 ? bp.toFixed(1) : Math.round(bp)} bp`;
       } else {
+        if (t.unit === 'usdhr') priceText = `$${fmt(t.price)}/hr`;
         chgText = `${up ? '▲' : '▼'} ${sign}${fmt(Math.abs(t.change))} (${sign}${fmt(Math.abs(t.pct))}%)`;
       }
       const text = el('div', {},
@@ -807,8 +972,8 @@ async function loadRibbon() {
         el('div', { class: 'tprice', text: priceText }),
         el('div', { class: 'tchg ' + dir, text: chgText }));
       const note = t.mode === 'close' ? 'At close' : t.note;
-      if (note) text.append(el('div', { class: 'tnote', text: note }));
-      return el('a', { class: 'tile', href, target: '_blank', rel: 'noopener' }, text, sparkline(t.points, t.base ?? t.prev, dir));
+      if (note) text.append(el('div', { class: 'tnote', text: (t.flag ? '⚠ ' : '') + note }));
+      return el('a', { class: 'tile' + (t.flag ? ` flag-${t.flag}` : ''), href, target: '_blank', rel: 'noopener' }, text, sparkline(t.points, t.base ?? t.prev, dir));
     });
     const rows = {};
     d.tiles.forEach((t, i) => (rows[t.row || 1] ||= []).push(els[i]));
