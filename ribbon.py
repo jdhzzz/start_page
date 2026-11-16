@@ -195,7 +195,7 @@ def build_tile(item):
     sym, fut = item["symbol"], item.get("fut")
     try:
         if item.get("kind") == "fred":
-            return series_tile(item, fetch_fred(sym), "3-month trend, daily",
+            return series_tile(item, fetch_fred(sym), "3 months",
                                f"https://fred.stlouisfed.org/series/{sym}")
         if item.get("kind") == "gpu":
             daily = gpu.ornn_daily(sym)
@@ -205,9 +205,9 @@ def build_tile(item):
             tile["flag"] = gpu.flag_for(below)
             return tile
         if item.get("kind") == "trend":
-            return series_tile(item, daily_closes(sym), "3-month trend", unit=None)
+            return series_tile(item, daily_closes(sym), "3 months", unit=None)
         if item.get("kind") == "yield":
-            return series_tile(item, daily_closes(sym), "3-month trend")
+            return series_tile(item, daily_closes(sym), "3 months")
         if fut:
             idx = intraday(sym, "day")
             if regular_session_now() and is_fresh(idx):

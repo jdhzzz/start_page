@@ -908,10 +908,10 @@ function gpuView(d, width) {
 
 /* ---------- market ribbon ---------- */
 let sparkSeq = 0;
-function sparkline(points, prev, dir) {
+function sparkline(points, prev, dir, W = 96) {
   // Line and shading are split at the baseline: green above it, red below,
   // with the fill fading out toward the baseline (as on finance.yahoo.com).
-  const W = 96, H = 30, pad = 2;
+  const H = 30, pad = 2;
   const min = Math.min(...points, prev), max = Math.max(...points, prev), span = max - min || 1;
   const x = i => pad + i * (W - 2 * pad) / Math.max(1, points.length - 1);
   const y = v => H - pad - (v - min) / span * (H - 2 * pad);
@@ -973,7 +973,8 @@ async function loadRibbon() {
         el('div', { class: 'tchg ' + dir, text: chgText }));
       const note = t.mode === 'close' ? 'At close' : t.note;
       if (note) text.append(el('div', { class: 'tnote', text: (t.flag ? '⚠ ' : '') + note }));
-      return el('a', { class: 'tile' + (t.flag ? ` flag-${t.flag}` : ''), href, target: '_blank', rel: 'noopener' }, text, sparkline(t.points, t.base ?? t.prev, dir));
+      return el('a', { class: 'tile' + (t.flag ? ` flag-${t.flag}` : ''), href, target: '_blank', rel: 'noopener' }, text,
+        sparkline(t.points, t.base ?? t.prev, dir, (t.row || 1) > 1 ? 70 : 96));   // row 2 has more tiles, so its charts are narrower
     });
     const rows = {};
     d.tiles.forEach((t, i) => (rows[t.row || 1] ||= []).push(els[i]));
