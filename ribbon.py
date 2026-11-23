@@ -38,11 +38,15 @@ TILES = [
     #   BAMLH0A3HYC   ICE BofA CCC & lower spread (the distressed end; jumpier, an early-warning gauge)
     {"row": 2, "name": "10y–2y spread", "symbol": "T10Y2Y", "kind": "fred"},
     {"row": 2, "name": "High-yield spread", "symbol": "BAMLH0A0HYM2", "kind": "fred"},
-    # kind "trend": daily Yahoo series shown as plain points with a 3-month sparkline.
-    {"row": 2, "name": "MOVE (rate vol)", "symbol": "^MOVE", "kind": "trend"},
+    # BAMLH0A1HYBB: ICE BofA BB spread (the top tier of junk). "rise_warn" turns the tile
+    # amber when the spread has widened by at least that many points over about a month.
+    {"row": 2, "name": "BB spread", "symbol": "BAMLH0A1HYBB", "kind": "fred", "rise_warn": 0.30},
     # kind "gpu": Ornn's daily rental-price index for a chip, in $ per GPU-hour (see gpu.py).
     # Here falling is the warning sign; the tile is flagged when it drops well below its 3-month high.
-    {"row": 2, "name": "H100 rental", "symbol": "H100 SXM", "kind": "gpu"},
+    # Removed from the ribbon for now; uncomment to restore (the GPU rental widget is unaffected).
+    # {"row": 2, "name": "H100 rental", "symbol": "H100 SXM", "kind": "gpu"},
+    # kind "trend": daily Yahoo series shown as plain points with a 3-month sparkline.
+    {"row": 2, "name": "MOVE (rate vol)", "symbol": "^MOVE", "kind": "trend"},
     {"row": 2, "name": "Gold", "symbol": "GC=F"},
     {"row": 2, "name": "Crude oil", "symbol": "CL=F"},
     {"row": 1, "name": "Bitcoin", "symbol": "BTC-USD"},
@@ -50,6 +54,7 @@ TILES = [
 
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 TREND_DAYS = 65         # about three months of trading days
+MONTH_DAYS = 21         # about one month of trading days
 FRED_TTL = 3600
 
 CACHE_TTL = 60
@@ -195,8 +200,15 @@ def build_tile(item):
     sym, fut = item["symbol"], item.get("fut")
     try:
         if item.get("kind") == "fred":
-            return series_tile(item, fetch_fred(sym), "3 months",
-                               f"https://fred.stlouisfed.org/series/{sym}")
+            s = fetch_fred(sym)
+            tile = series_tile(item, s, "3 months", f"https://fred.stlouisfed.org/series/{sym}")
+            warn = item.get("rise_warn")
+            if warn is not None and len(s) > MONTH_DAYS:
+                rise = float(s.iloc[-1]) - float(s.iloc[-1 - MONTH_DAYS])
+                if rise >= warn - 1e-9:
+                    tile["flag"] = "warn"
+                    tile["note"] = f"Up {rise:.2f} in a month"
+            return tile
         if item.get("kind") == "gpu":
             daily = gpu.ornn_daily(sym)
             below = gpu.off_high(daily)
